@@ -17,7 +17,7 @@ public class splinetest {
         String jsonParam = " {\"query\": \"mutation updateLineage { updateLineage( input:{ edgesToAdd : [{ downstreamUrn: \\\"urn:li:dataset:(urn:li:dataPlatform:hive,hudi_dwd.dwd_company_weibo,PROD)\\\", upstreamUrn : \\\"urn:li:dataset:(urn:li:dataPlatform:hive,hudi_ods.ods_company_weibo,PROD)\\\"}], edgesToRemove :[] })}\",\"variables\": {}} ";
 
 
-        handleHttp(jsonParam,"http://172.18.1.54:9002/api/graphql");
+        handleHttp(jsonParam,"http://172.18.x.xx:9002/api/graphql");
 
     }
 
@@ -28,7 +28,7 @@ public class splinetest {
             HttpPost request = new HttpPost(url);
 
             request.addHeader(HTTP.CONTENT_TYPE, "application/json");
-           request.addHeader("Authorization","Bearer eyJhbGciOiJIUzI1NiJ9.eyJhY3RvclR5cGUiOiJVU0VSIiwiYWN0b3JJZCI6ImRhdGFodWIiLCJ0eXBlIjoiUEVSU09OQUwiLCJ2ZXJzaW9uIjoiMiIsImp0aSI6IjYxMDVhMGVkLWNhZjctNDE5NC1hYmMzLTQ2NGU0ZDI5YTc1NSIsInN1YiI6ImRhdGFodWIiLCJpc3MiOiJkYXRhaHViLW1ldGFkYXRhLXNlcnZpY2UifQ.tFScljRefDvhOLM9pIQbjMIFw_HmkkYEcwlpFgNDLck");
+           request.addHeader("Authorization","Bearer xxx");
 
             StringEntity s = new StringEntity(jsonParam, Charset.forName("UTF-8"));
             s.setContentEncoding("UTF-8");
