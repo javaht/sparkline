@@ -71,9 +71,13 @@ public class zxzhSparkline extends AbstractJsonLineageDispatcher {
                 sb.append(jsonParamList.get(jsonParamList.size()-1));
             }
 
-            String spline = "{\"query\": \"mutation updateLineage { updateLineage( input:{ edgesToAdd : [" + sb + "],edgesToRemove: []})}\",\"variables\":{}}";
+            //先删除原来的数据血缘
+            String  splineRemove =  "{\"query\": \"mutation updateLineage { updateLineage( input:{ edgesToAdd : [],edgesToRemove: [" + sb + "]})}\",\"variables\":{}}";
+            //增加最新的数据血缘
+            String splineAdd = "{\"query\": \"mutation updateLineage { updateLineage( input:{ edgesToAdd : [" + sb + "],edgesToRemove: []})}\",\"variables\":{}}";
 
-       handleHttp(spline,"http://172.18.x.xx:9002/api/graphql");
+            handleHttp(splineRemove,"http://172.18.1.54:9002/api/graphql");
+            handleHttp(splineAdd,"http://172.18.1.54:9002/api/graphql");
         }
 
         }
