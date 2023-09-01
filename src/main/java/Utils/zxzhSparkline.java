@@ -1,7 +1,13 @@
 package Utils;
 
+import Entitys.targetTable;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import com.linkedin.dataset.DatasetProperties;
+import datahub.client.Callback;
+import datahub.client.MetadataWriteResponse;
+import datahub.client.rest.RestEmitter;
+import datahub.event.MetadataChangeProposalWrapper;
 import org.apache.commons.lang.StringUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
@@ -11,6 +17,7 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.protocol.HTTP;
 import za.co.absa.spline.harvester.dispatcher.AbstractJsonLineageDispatcher;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.*;
@@ -27,68 +34,131 @@ public class zxzhSparkline extends AbstractJsonLineageDispatcher {
     public void send(String data) {
         if (data.startsWith("ExecutionPlan")) {
             String replaceDate = StringUtils.replace(data, "ExecutionPlan (apiVersion: 1.2):", "");
-            JSONObject operations = JSONObject.parseObject(replaceDate).getJSONObject("operations");
-            JSONObject write = operations.getJSONObject("write");
-            String type = write.getJSONObject("extra").getString("destinationType");
-            String downstreamUrn = "";
 
-            if("jdbc".equals(type)){
-                String outputSource = write.getString("outputSource");
-                String dbType = outputSource.substring(outputSource.indexOf(":") + 1, outputSource.indexOf("://"));
-                String[] parts = StringUtils.substringAfterLast(outputSource, "/").split(":");
-                String targetGoal = parts[parts.length-1];
-                downstreamUrn= "{downstreamUrn: \\\"urn:li:dataset:(urn:li:dataPlatform:"+dbType+","+targetGoal+",PROD)\\\",";
-            }else if("hudi".equals(type)){
-                JSONObject params = write.getJSONObject("params");
-                //目标数据库
-                String targetDatabase = params.getString("hoodie.datasource.hive_sync.database");
-                //目标表
-                String targetTablename = params.getString("hoodie.datasource.hive_sync.table");
-                downstreamUrn= "{downstreamUrn: \\\"urn:li:dataset:(urn:li:dataPlatform:hive,"+targetDatabase+"."+targetTablename+",PROD)\\\",";
-            }
+             //这里存放的是目标表的类型和列名
 
-            JSONArray readsArray = operations.getJSONArray("reads"); //这里开始获取数据来源
-            Set<String> sourset =  new LinkedHashSet<String>();//定义一个不允许重复的集合
-            for (int i = 0; i < readsArray.size(); i++) {
-                JSONObject readObj = readsArray.getJSONObject(i);
-                String sourceTable = readObj.getJSONObject("params").getJSONObject("table").getJSONObject("identifier").getString("table");
-                String sourceDatabase = readObj.getJSONObject("params").getJSONObject("table").getJSONObject("identifier").getString("database");
-                sourset.add(sourceDatabase+"."+sourceTable);
-            }
+            List list = makeTargetTable(replaceDate);
 
-            List jsonParamList = new ArrayList<String>();
-            for(String s: sourset){
-                String upstreamUrn =   "upstreamUrn :  \\\"urn:li:dataset:(urn:li:dataPlatform:hive,"+s+",PROD)\\\"}";
-                String  jsonParam =   downstreamUrn+upstreamUrn;
-                jsonParamList.add(jsonParam);
-            }
+            list.stream().forEach( heihei->{
+                System.out.println(heihei);
+            });
 
-            StringBuilder sb = new StringBuilder();
-            for(int i = 0; i < jsonParamList.size()-1; i++) {
-                sb.append(jsonParamList.get(i)).append(",");
-            }
-            if(!jsonParamList.isEmpty()) {
-                sb.append(jsonParamList.get(jsonParamList.size()-1));
-            }
 
+
+            //把表的元数据导入datahub
+
+
+
+
+            //这里拼接的血缘
+            StringBuilder sb = makeLine(replaceDate);
             //先删除原来的数据血缘
             String  splineRemove =  "{\"query\": \"mutation updateLineage { updateLineage( input:{ edgesToAdd : [],edgesToRemove: [" + sb + "]})}\",\"variables\":{}}";
             //增加最新的数据血缘
             String splineAdd = "{\"query\": \"mutation updateLineage { updateLineage( input:{ edgesToAdd : [" + sb + "],edgesToRemove: []})}\",\"variables\":{}}";
 
-            handleHttp(splineRemove,"http://172.18.1.54:9002/api/graphql");
-            handleHttp(splineAdd,"http://172.18.1.54:9002/api/graphql");
-        }
+            //handleHttp(splineRemove,"http://172.18.1.54:9002/api/graphql");
+           // handleHttp(splineAdd,"http://172.18.1.54:9002/api/graphql");
 
         }
+
+
+    }
+
+  public StringBuilder makeLine(String replaceDate){
+      String downstreamUrn = "";
+      JSONObject operations = JSONObject.parseObject(replaceDate).getJSONObject("operations");
+      JSONObject write = operations.getJSONObject("write");
+      String type = write.getJSONObject("extra").getString("destinationType");
+
+      if("hudi".equals(type)){
+          JSONObject params = write.getJSONObject("params");
+          //目标数据库
+          String targetDatabase = params.getString("hoodie.datasource.hive_sync.database");
+          //目标表
+          String targetTablename = params.getString("hoodie.datasource.hive_sync.table");
+
+          downstreamUrn= "{downstreamUrn: \\\"urn:li:dataset:(urn:li:dataPlatform:hive,"+targetDatabase+"."+targetTablename+",PROD)\\\",";
+      }
+
+      JSONArray readsArray = operations.getJSONArray("reads"); //这里开始获取数据来源
+      Set<String> sourset =  new LinkedHashSet<String>();//定义一个不允许重复的集合
+      for (int i = 0; i < readsArray.size(); i++) {
+          JSONObject readObj = readsArray.getJSONObject(i);
+          String sourceTable = readObj.getJSONObject("params").getJSONObject("table").getJSONObject("identifier").getString("table");
+          String sourceDatabase = readObj.getJSONObject("params").getJSONObject("table").getJSONObject("identifier").getString("database");
+          sourset.add(sourceDatabase+"."+sourceTable);
+      }
+
+      List jsonParamList = new ArrayList<String>();
+      for(String s: sourset){
+          String upstreamUrn =   "upstreamUrn :  \\\"urn:li:dataset:(urn:li:dataPlatform:hive,"+s+",PROD)\\\"}";
+          String  jsonParam =   downstreamUrn+upstreamUrn;
+          jsonParamList.add(jsonParam);
+      }
+
+      StringBuilder sb = new StringBuilder();
+      for(int i = 0; i < jsonParamList.size()-1; i++) {
+          sb.append(jsonParamList.get(i)).append(",");
+      }
+      if(!jsonParamList.isEmpty()) {
+          sb.append(jsonParamList.get(jsonParamList.size()-1));
+      }
+
+      return sb;
+
+  }
+
+
+    /*
+    *
+    * 这里解析目标表的结构和类型
+    *
+    * */
+    public List makeTargetTable(String replaceDate){
+        //这里先解析目标表的名字和类型。 因为解析出来的字段类型是加密的，所以我们要从columnTypes得到类型
+        JSONArray columnNames = JSONObject.parseObject(replaceDate).getJSONArray("attributes");
+        JSONArray columnTypes =        JSONObject.parseObject(replaceDate).getJSONObject("extraInfo").getJSONArray("dataTypes");
+        ArrayList<targetTable> targetTablesList = new ArrayList<>();
+        //首先遍历有具体类型名字的
+        for (int i = 0; i < columnTypes.size(); i++) {
+            JSONObject targetTb = JSONObject.parseObject(columnTypes.get(i).toString());
+            String targetTypeid = targetTb.getString("id");
+            String targetTypeName  = targetTb.getString("name");//这个是列类型
+
+            //再遍历有具体列名的
+            for(int j = 0; j < columnNames.size(); j++) {
+                JSONObject attribute = JSONObject.parseObject(columnNames.get(j).toString());
+                if(StringUtils.isEmpty(attribute.getString("childRefs"))){
+                    String name = attribute.getString("name");  //这个是列名
+                    String dataType = attribute.getString("dataType");
+
+                    if(targetTypeid.equals(dataType)){
+                        //说明是同一个类型 我们把列名和列的类型放到list里
+                        targetTablesList.add(targetTable.builder().tabletype(targetTypeName).tablename(name).build());
+                    }
+
+                }
+
+            }
+
+        }
+        return targetTablesList;
+    }
+
+
+
+
     public  void handleHttp(String jsonParam, String url) {
         BufferedReader in = null;
         try {
             HttpClient client = HttpClients.createDefault();
             HttpPost request = new HttpPost(url);
 
+            //这里的token每组不一样 需要数据组长生成添加使用。
+            String token = "";
             request.addHeader(HTTP.CONTENT_TYPE, "application/json");
-            request.addHeader("Authorization","Bearer eyJhbGciOiJIUzI1NiJ9.eyJhY3RvclR5cGUiOiJVU0VSIiwiYWN0b3JJZCI6ImRhdGFodWIiLCJ0eXBlIjoiUEVSU09OQUwiLCJ2ZXJzaW9uIjoiMiIsImp0aSI6IjYxMDVhMGVkLWNhZjctNDE5NC1hYmMzLTQ2NGU0ZDI5YTc1NSIsInN1YiI6ImRhdGFodWIiLCJpc3MiOiJkYXRhaHViLW1ldGFkYXRhLXNlcnZpY2UifQ.tFScljRefDvhOLM9pIQbjMIFw_HmkkYEcwlpFgNDLck");
+            request.addHeader("Authorization","Bearer "+token);
 
             StringEntity s = new StringEntity(jsonParam, Charset.forName("UTF-8"));
             s.setContentEncoding("UTF-8");
